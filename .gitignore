@@ -4,3 +4,8 @@ dist/
 android/
 ios/
 *.log
+
+# signing keys, never commit
+*.jks
+*.keystore
+credentials.json

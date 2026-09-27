@@ -1,13 +1,17 @@
 {
   "expo": {
-    "name": "premia-app",
+    "name": "PREMIA",
     "slug": "premia-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "xyz.premia.app",
+      "associatedDomains": [
+        "webcredentials:premia-swap.vercel.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -16,13 +20,20 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "xyz.premia.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ba744612-7bd8-4a3c-bd42-c95964fe632c"
+      }
+    },
+    "owner": "makabeez"
   }
 }

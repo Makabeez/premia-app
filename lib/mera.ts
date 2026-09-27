@@ -7,7 +7,7 @@
  * device that can reach the same passkey.
  *
  * Namespaces (the "one passkey, many keys" idea): the same passkey mints
- * different keys under different PRF salts. Wallet and Perpl API credential
+ * unrelated keys under different PRF salts. Wallet and Perpl API credential
  * are separate keys from one credential, and neither is ever stored.
  */
 import {
@@ -18,19 +18,31 @@ import {
   getEvmAddress,
 } from "@category-labs/mera";
 import { toViemAccount } from "@category-labs/mera/viem";
-import { createWalletClient, http, type LocalAccount } from "viem";
+import {
+  createWalletClient,
+  http,
+  sha256,
+  stringToBytes,
+  type LocalAccount,
+} from "viem";
 import { monad } from "./chain";
+import { webAuthnClient } from "./webauthn";
 
-const RP_ID = process.env.EXPO_PUBLIC_RP_ID ?? "premia.app";
+/** The host the passkeys belong to. It serves /.well-known/assetlinks.json. */
+export const RP_ID = process.env.EXPO_PUBLIC_RP_ID ?? "premia-swap.vercel.app";
 const RP_NAME = "PREMIA";
 
-const enc = (s: string) => new TextEncoder().encode(s);
+/**
+ * mera requires PRF salts of exactly 32 bytes. Hashing a readable label keeps
+ * each namespace legible in code and exactly 32 bytes on the wire.
+ */
+const salt = (label: string): Uint8Array => sha256(stringToBytes(label), "bytes");
 
-/** Distinct salts => distinct keys from the same passkey. */
+/** Distinct salts => unrelated keys from the same passkey. */
 export const SALT = {
-  wallet: enc("premia/wallet/v1"),
-  perplApiKey: enc("premia/perpl-api-key/v1"),
-  makerState: enc("premia/maker-state/v1"),
+  wallet: salt("premia/wallet/v1"),
+  perplApiKey: salt("premia/perpl-api-key/v1"),
+  makerState: salt("premia/maker-state/v1"),
 } as const;
 
 export type Session = {
@@ -45,6 +57,7 @@ export async function signUp(label: string): Promise<Session> {
     rp: { id: RP_ID, name: RP_NAME },
     user: { name: label, displayName: label },
     prfSalt: SALT.wallet,
+    webAuthnClient,
   });
   return sessionFromPrf(created.prfOutput, created.credentialId);
 }
@@ -52,8 +65,9 @@ export async function signUp(label: string): Promise<Session> {
 /** Returning user, any device. Nothing is read from storage. */
 export async function signIn(): Promise<Session> {
   const got = await getPasskeyPrfOutput({
-    rp: { id: RP_ID },
+    rpId: RP_ID,
     prfSalt: SALT.wallet,
+    webAuthnClient,
   });
   return sessionFromPrf(got.prfOutput, got.credentialId);
 }
@@ -75,13 +89,15 @@ export function walletClient(account: LocalAccount) {
 /**
  * Perpl authenticates programmatic clients with an Ed25519 key. Deriving it
  * from the passkey under its own salt means the trading credential is
- * regenerable on any device and stored nowhere -- not a wallet, which is the
- * point.
+ * regenerable on any device and stored nowhere. Pass the wallet's
+ * credentialId to pin the same passkey the wallet came from.
  */
-export async function derivePerplApiKey() {
+export async function derivePerplApiKey(credentialId?: string) {
   const got = await getPasskeyPrfOutput({
-    rp: { id: RP_ID },
+    rpId: RP_ID,
     prfSalt: SALT.perplApiKey,
+    webAuthnClient,
+    ...(credentialId ? { credential: { credentialId } } : {}),
   });
   return createEd25519SigningSession({ privateKey: got.prfOutput });
 }

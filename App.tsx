@@ -37,7 +37,10 @@ export default function App() {
     try { setSession(await fn()); }
     catch (e: any) {
       // The common failure is a passkey created without PRF support.
-      setErr(String(e?.message ?? e));
+      const c = e?.cause;
+      const detail = c ? ` | cause: ${c.error ?? c.code ?? c.name ?? ""} ${c.message ?? String(c)}` : "";
+      console.log("[premia] auth error", e?.code, e?.message, JSON.stringify(c ?? null));
+      setErr(`${e?.code ?? "ERR"}: ${e?.message ?? e}${detail}`);
     } finally { setBusy(false); }
   }
 
