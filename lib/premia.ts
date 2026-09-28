@@ -105,10 +105,14 @@ export async function ensureAllowance(account: LocalAccount, needed: bigint) {
   });
   if (current >= needed) return null;
   const wc = walletClient(account);
-  return wc.writeContract({
+  const hash = await wc.writeContract({
     address: AUSD, abi: erc20Abi, functionName: "approve",
     args: [PREMIA_SWAP, 2n ** 96n],
   });
+  // The trade that follows is gas-estimated against chain state, so the
+  // allowance has to be mined first or the estimate reverts.
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 export async function postQuote(

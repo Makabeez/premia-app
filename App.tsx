@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { signUp, signIn, type Session } from "./lib/mera";
-import { loadSeries, mid, impliedApr, type Series } from "./lib/premia";
+import { loadSeries, mid, impliedApr, take, publicClient, PAY_FIXED, type Series } from "./lib/premia";
 import { loadContext, type MarketCtx } from "./lib/perpl";
 
 export default function App() {
@@ -10,6 +10,32 @@ export default function App() {
   const [ctx, setCtx] = useState<Record<number, MarketCtx>>({});
   const [mids, setMids] = useState<Record<number, bigint | null>>({});
   const [busy, setBusy] = useState(false);
+  const [hedged, setHedged] = useState<string | null>(null);
+
+  /**
+   * One tap: pay fixed on 1 lot of the newest series still open for trading.
+   * Signed by the passkey-derived key in memory, so no second prompt.
+   */
+  async function hedge() {
+    if (!session) return;
+    setBusy(true); setErr(null); setHedged(null);
+    try {
+      const head = await publicClient.getBlockNumber();
+      const all = await loadSeries();
+      setSeries(all);
+      const s = [...all].reverse().find((x) => !x.settled && head < x.startBlock);
+      if (!s) throw new Error("no series open for trading");
+      // limit tick 90 = K of at most minK + 90*tickStep; refuses a worse price
+      const hash = await take(session.account, s.id, PAY_FIXED, 1n, 90, s.capPerLot, s.unitScale);
+      console.log("[premia] hedge tx", hash);
+      await publicClient.waitForTransactionReceipt({ hash });
+      setHedged(`Hedged 1 lot of ${s.symbol} (series ${s.id})\n${hash}`);
+    } catch (e: any) {
+      const msg = String(e?.shortMessage ?? e?.message ?? e);
+      console.log("[premia] hedge error", msg);
+      setErr(msg);
+    } finally { setBusy(false); }
+  }
   const [err, setErr] = useState<string | null>(null);
 
   // The curve loads without a session. Nobody should have to sign in to see
@@ -91,9 +117,20 @@ export default function App() {
 
       <View style={{ marginTop: 34 }}>
         {session ? (
-          <Text style={{ color: "#8a8a93", fontSize: 13 }}>
-            {session.address}
-          </Text>
+          <View>
+            <Text style={{ color: "#8a8a93", fontSize: 13 }}>
+              {session.address}
+            </Text>
+            <Pressable onPress={hedge} disabled={busy}
+              style={{ padding: 16, marginTop: 16, borderRadius: 12, backgroundColor: "#fff" }}>
+              <Text style={{ textAlign: "center", fontWeight: "600" }}>
+                {busy ? "..." : "Lock my ZEC funding · 1 lot"}
+              </Text>
+            </Pressable>
+            {hedged && (
+              <Text selectable style={{ color: "#7bd88f", marginTop: 12, fontSize: 12 }}>{hedged}</Text>
+            )}
+          </View>
         ) : (
           <>
             <Pressable onPress={() => auth(signIn)} disabled={busy}
