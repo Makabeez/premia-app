@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { signUp, signIn, type Session } from "./lib/mera";
 import { loadSeries, mid, impliedApr, take, publicClient, PAY_FIXED, type Series } from "./lib/premia";
+import { openPerp } from "./lib/perplTrade";
+import { walletClient } from "./lib/mera";
+import { AUSD } from "./lib/chain";
 import { loadContext, type MarketCtx } from "./lib/perpl";
 
 export default function App() {
@@ -25,11 +28,23 @@ export default function App() {
       setSeries(all);
       const s = [...all].reverse().find((x) => !x.settled && head < x.startBlock);
       if (!s) throw new Error("no series open for trading");
-      // limit tick 90 = K of at most minK + 90*tickStep; refuses a worse price
+      if (s.marketId !== 50) throw new Error("perp leg is wired for ZEC only");
+      // 1. The exposure: long 0.01 ZEC on Perpl (= exactly 1 PREMIA lot), 2x, IoC.
+      //    First use opens the Perpl account with an 11 AUSD deposit.
+      const perp = await openPerp({
+        pc: publicClient as any, wc: walletClient(session.account), account: session.account,
+        collateral: AUSD, perpId: 50, long: true, lotLNS: 100n, leverage: 2,
+        depositCNS: 11_000_000n,
+      });
+      console.log("[premia] perp txs", perp.hashes.join(" "));
+      // 2. The hedge: pay fixed on the same size. A long pays floating funding;
+      //    pay-fixed receives floating and pays K, so the long's net is -K.
+      //    limit tick 90 = K of at most minK + 90*tickStep; refuses a worse price
       const hash = await take(session.account, s.id, PAY_FIXED, 1n, 90, s.capPerLot, s.unitScale);
       console.log("[premia] hedge tx", hash);
       await publicClient.waitForTransactionReceipt({ hash });
-      setHedged(`Hedged 1 lot of ${s.symbol} (series ${s.id})\n${hash}`);
+      const entry = (Number(perp.position.pricePNS) / 100).toFixed(2);
+      setHedged(`Long 0.01 ZEC on Perpl @ ${entry}\nFunding locked on PREMIA series ${s.id}\nperp ${perp.hashes[perp.hashes.length - 1]}\nhedge ${hash}`);
     } catch (e: any) {
       const msg = String(e?.shortMessage ?? e?.message ?? e);
       console.log("[premia] hedge error", msg);
