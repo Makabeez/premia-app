@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { signUp, signIn, type Session } from "./lib/mera";
 import { loadSeries, mid, impliedApr, take, publicClient, PAY_FIXED, type Series } from "./lib/premia";
-import { openPerp } from "./lib/perplTrade";
+import { openPerp, closePerpAndWithdraw } from "./lib/perplTrade";
 import { walletClient } from "./lib/mera";
 import { AUSD, PREMIA_SWAP, monad } from "./lib/chain";
 import { swapAbi } from "./lib/premia";
@@ -15,6 +15,22 @@ export default function App() {
   const [mids, setMids] = useState<Record<number, bigint | null>>({});
   const [busy, setBusy] = useState(false);
   const [hedged, setHedged] = useState<string | null>(null);
+
+  /** Close the ZEC perp and pull the collateral back. Only this phone holds the key. */
+  async function closePerp() {
+    if (!session) return;
+    setBusy(true); setErr(null); setHedged(null);
+    try {
+      const out = await closePerpAndWithdraw({ pc: publicClient as any,
+        wc: walletClient(session.account), account: session.account, perpId: 50 });
+      console.log("[premia] close txs", out.hashes.join(" "));
+      setHedged(`Closed ${Number(out.closedLotLNS) / 1e4} ZEC, withdrew ${(Number(out.withdrawnCNS) / 1e6).toFixed(6)} AUSD\n${out.hashes.join("\n")}`);
+    } catch (e: any) {
+      const msg = String(e?.shortMessage ?? e?.message ?? e);
+      console.log("[premia] close error", msg);
+      setErr(msg);
+    } finally { setBusy(false); }
+  }
 
   /** Claim every settled series this wallet holds fills in. The passkey key only exists on the phone. */
   async function claimAll() {
@@ -168,6 +184,11 @@ export default function App() {
               style={{ padding: 16, marginTop: 16, borderRadius: 12, backgroundColor: "#fff" }}>
               <Text style={{ textAlign: "center", fontWeight: "600" }}>
                 {busy ? "..." : "Lock my ZEC funding · 1 lot"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={closePerp} disabled={busy} style={{ padding: 14, marginTop: 4 }}>
+              <Text style={{ textAlign: "center", color: "#8a8a93" }}>
+                {busy ? "..." : "Close ZEC perp & withdraw"}
               </Text>
             </Pressable>
             <Pressable onPress={claimAll} disabled={busy} style={{ padding: 14, marginTop: 10 }}>

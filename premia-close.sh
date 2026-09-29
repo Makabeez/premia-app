@@ -1,3 +1,9 @@
+#!/usr/bin/env bash
+# PREMIA: "Close ZEC perp & withdraw" button (reduce-only IoC close + withdrawCollateral).
+# Run from ~/github/premia-app:  bash premia-close.sh   (Fast Refresh, no rebuild)
+set -euo pipefail
+[ -f App.tsx ] && [ -f lib/perplTrade.ts ] || { echo "run this from ~/github/premia-app"; exit 1; }
+cat > lib/perplTrade.ts <<'PREMIA_EOF'
 /**
  * Perpl perp leg: open the perp this swap hedges, from the passkey wallet.
  *
@@ -157,3 +163,48 @@ export async function closePerpAndWithdraw(opts: {
   }
   return { hashes, withdrawnCNS: free, closedLotLNS: pos.lotLNS };
 }
+PREMIA_EOF
+python3 - <<'PY'
+import sys
+p = "App.tsx"; s = open(p).read()
+if "closePerp" in s:
+    print("close button already present, skipping"); sys.exit(0)
+edits = [
+("""import { openPerp } from "./lib/perplTrade";""",
+"""import { openPerp, closePerpAndWithdraw } from "./lib/perplTrade";"""),
+("""  /** Claim every settled series""",
+"""  /** Close the ZEC perp and pull the collateral back. Only this phone holds the key. */
+  async function closePerp() {
+    if (!session) return;
+    setBusy(true); setErr(null); setHedged(null);
+    try {
+      const out = await closePerpAndWithdraw({ pc: publicClient as any,
+        wc: walletClient(session.account), account: session.account, perpId: 50 });
+      console.log("[premia] close txs", out.hashes.join(" "));
+      setHedged(`Closed ${Number(out.closedLotLNS) / 1e4} ZEC, withdrew ${(Number(out.withdrawnCNS) / 1e6).toFixed(6)} AUSD\\n${out.hashes.join("\\n")}`);
+    } catch (e: any) {
+      const msg = String(e?.shortMessage ?? e?.message ?? e);
+      console.log("[premia] close error", msg);
+      setErr(msg);
+    } finally { setBusy(false); }
+  }
+
+  /** Claim every settled series"""),
+("""            <Pressable onPress={claimAll} disabled={busy} style={{ padding: 14, marginTop: 10 }}>""",
+"""            <Pressable onPress={closePerp} disabled={busy} style={{ padding: 14, marginTop: 4 }}>
+              <Text style={{ textAlign: "center", color: "#8a8a93" }}>
+                {busy ? "..." : "Close ZEC perp & withdraw"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={claimAll} disabled={busy} style={{ padding: 14, marginTop: 10 }}>"""),
+]
+for old, new in edits:
+    n = s.count(old)
+    if n != 1:
+        sys.exit(f"ABORT, nothing written: App.tsx anchor matched {n} times:\\n{old[:90]}")
+    s = s.replace(old, new)
+open(p, "w").write(s); print("patched App.tsx: close button")
+PY
+npx tsc --noEmit && echo "typecheck ok" || { echo "typecheck errors above, paste them to Claude"; exit 1; }
+mkdir -p scripts/patches && cp "$0" scripts/patches/premia-close.sh 2>/dev/null || true
+git add -A && git commit -m "close perp + withdraw collateral from the passkey wallet" && git push
