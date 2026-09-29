@@ -4,7 +4,8 @@ import { signUp, signIn, type Session } from "./lib/mera";
 import { loadSeries, mid, impliedApr, take, publicClient, PAY_FIXED, type Series } from "./lib/premia";
 import { openPerp } from "./lib/perplTrade";
 import { walletClient } from "./lib/mera";
-import { AUSD } from "./lib/chain";
+import { AUSD, PREMIA_SWAP, monad } from "./lib/chain";
+import { swapAbi } from "./lib/premia";
 import { loadContext, type MarketCtx } from "./lib/perpl";
 
 export default function App() {
@@ -14,6 +15,33 @@ export default function App() {
   const [mids, setMids] = useState<Record<number, bigint | null>>({});
   const [busy, setBusy] = useState(false);
   const [hedged, setHedged] = useState<string | null>(null);
+
+  /** Claim every settled series this wallet holds fills in. The passkey key only exists on the phone. */
+  async function claimAll() {
+    if (!session) return;
+    setBusy(true); setErr(null); setHedged(null);
+    try {
+      const all = await loadSeries();
+      setSeries(all);
+      const done: string[] = [];
+      for (const s of all) {
+        if (!s.settled) continue;
+        const owed = await publicClient.readContract({ address: PREMIA_SWAP, abi: swapAbi,
+          functionName: "quoteClaim", args: [BigInt(s.id), session.account.address] });
+        if (owed === 0n) continue;
+        const hash = await walletClient(session.account).writeContract({ address: PREMIA_SWAP,
+          abi: swapAbi, functionName: "claim", args: [BigInt(s.id)], account: session.account, chain: monad });
+        await publicClient.waitForTransactionReceipt({ hash });
+        console.log("[premia] claim", s.id, hash);
+        done.push(`series ${s.id}: +${(Number(owed) / 1e6).toFixed(6)} AUSD\n${hash}`);
+      }
+      setHedged(done.length ? `Claimed\n${done.join("\n")}` : "Nothing to claim yet: no settled series with a payout");
+    } catch (e: any) {
+      const msg = String(e?.shortMessage ?? e?.message ?? e);
+      console.log("[premia] claim error", msg);
+      setErr(msg);
+    } finally { setBusy(false); }
+  }
 
   /**
    * One tap: pay fixed on 1 lot of the newest series still open for trading.
@@ -140,6 +168,11 @@ export default function App() {
               style={{ padding: 16, marginTop: 16, borderRadius: 12, backgroundColor: "#fff" }}>
               <Text style={{ textAlign: "center", fontWeight: "600" }}>
                 {busy ? "..." : "Lock my ZEC funding · 1 lot"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={claimAll} disabled={busy} style={{ padding: 14, marginTop: 10 }}>
+              <Text style={{ textAlign: "center", color: "#b79cff" }}>
+                {busy ? "..." : "Claim settled payouts"}
               </Text>
             </Pressable>
             {hedged && (

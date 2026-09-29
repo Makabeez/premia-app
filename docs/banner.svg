@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="PREMIA: lock your funding bill in dollars">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#15121f"/><stop offset="1" stop-color="#0b0c10"/>
+    </linearGradient>
+    <linearGradient id="acc" gradientUnits="userSpaceOnUse" x1="680" y1="0" x2="1140" y2="0">
+      <stop offset="0" stop-color="#b79cff"/><stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+    <clipPath id="c"><rect width="1200" height="320" rx="24"/></clipPath>
+  </defs>
+  <style>
+    .wave { fill:none; stroke:#5b5670; stroke-width:4; stroke-linecap:round;
+            stroke-dasharray:1200; animation: draw 6s ease-in-out infinite; }
+    .fixed { fill:none; stroke:url(#acc); stroke-width:6; stroke-linecap:round;
+             stroke-dasharray:470; animation: lock 6s ease-in-out infinite; }
+    .dot { fill:#7c5cff; animation: pulse 6s ease-in-out infinite; }
+    @keyframes draw { 0%{stroke-dashoffset:1200;opacity:1} 45%{stroke-dashoffset:0;opacity:1} 80%{opacity:.3} 100%{stroke-dashoffset:0;opacity:0} }
+    @keyframes lock { 0%,40%{stroke-dashoffset:470} 70%,100%{stroke-dashoffset:0} }
+    @keyframes pulse { 0%,65%{opacity:0} 75%,100%{opacity:1} }
+    .t { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .m { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+  <g clip-path="url(#c)">
+    <rect width="1200" height="320" fill="url(#bg)"/>
+    <path class="wave" d="M680 175 C 720 85, 760 85, 800 175 S 880 265, 920 175 S 1000 85, 1040 175 S 1115 240, 1140 200"/>
+    <path class="fixed" d="M680 175 L 1140 175"/>
+    <circle class="dot" cx="1140" cy="175" r="9"/>
+    <text class="m" x="682" y="72" font-size="14" fill="#b79cff">fixed: what you pay</text>
+    <text class="m" x="682" y="290" font-size="14" fill="#6f6a86">floating: what funding prints</text>
+    <text class="t" x="64" y="140" font-size="76" font-weight="800" fill="#f2f0eb" letter-spacing="-2">PREMIA</text>
+    <text class="t" x="66" y="188" font-size="26" fill="#c9c5d6">Lock your funding bill in dollars.</text>
+    <text class="m" x="66" y="244" font-size="14" fill="#8a8a93">Funding-rate swaps on Perpl · Monad mainnet</text>
+    <text class="m" x="66" y="268" font-size="14" fill="#8a8a93">no oracle · no keeper · passkey wallet</text>
+  </g>
+</svg>
