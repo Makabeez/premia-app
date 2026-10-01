@@ -15,10 +15,13 @@ export default function App() {
   const [mids, setMids] = useState<Record<number, bigint | null>>({});
   const [busy, setBusy] = useState(false);
   const [hedged, setHedged] = useState<string | null>(null);
+  // which action is in flight, so only that button shows "..."
+  const [running, setRunning] = useState<string | null>(null);
 
   /** Close the ZEC perp and pull the collateral back. Only this phone holds the key. */
   async function closePerp() {
     if (!session) return;
+    setRunning("close");
     setBusy(true); setErr(null); setHedged(null);
     try {
       const out = await closePerpAndWithdraw({ pc: publicClient as any,
@@ -29,12 +32,13 @@ export default function App() {
       const msg = String(e?.shortMessage ?? e?.message ?? e);
       console.log("[premia] close error", msg);
       setErr(msg);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setRunning(null); }
   }
 
   /** Claim every settled series this wallet holds fills in. The passkey key only exists on the phone. */
   async function claimAll() {
     if (!session) return;
+    setRunning("claim");
     setBusy(true); setErr(null); setHedged(null);
     try {
       const all = await loadSeries();
@@ -56,7 +60,7 @@ export default function App() {
       const msg = String(e?.shortMessage ?? e?.message ?? e);
       console.log("[premia] claim error", msg);
       setErr(msg);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setRunning(null); }
   }
 
   /**
@@ -65,6 +69,7 @@ export default function App() {
    */
   async function hedge() {
     if (!session) return;
+    setRunning("hedge");
     setBusy(true); setErr(null); setHedged(null);
     try {
       const head = await publicClient.getBlockNumber();
@@ -93,7 +98,7 @@ export default function App() {
       const msg = String(e?.shortMessage ?? e?.message ?? e);
       console.log("[premia] hedge error", msg);
       setErr(msg);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setRunning(null); }
   }
   const [err, setErr] = useState<string | null>(null);
 
@@ -126,7 +131,7 @@ export default function App() {
       const detail = c ? ` | cause: ${c.error ?? c.code ?? c.name ?? ""} ${c.message ?? String(c)}` : "";
       console.log("[premia] auth error", e?.code, e?.message, JSON.stringify(c ?? null));
       setErr(`${e?.code ?? "ERR"}: ${e?.message ?? e}${detail}`);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setRunning(null); }
   }
 
   return (
@@ -183,17 +188,17 @@ export default function App() {
             <Pressable onPress={hedge} disabled={busy}
               style={{ padding: 16, marginTop: 16, borderRadius: 12, backgroundColor: "#fff" }}>
               <Text style={{ textAlign: "center", fontWeight: "600" }}>
-                {busy ? "..." : "Lock my ZEC funding · 1 lot"}
+                {running === "hedge" ? "..." : "Lock my ZEC funding · 1 lot"}
               </Text>
             </Pressable>
             <Pressable onPress={closePerp} disabled={busy} style={{ padding: 14, marginTop: 4 }}>
               <Text style={{ textAlign: "center", color: "#8a8a93" }}>
-                {busy ? "..." : "Close ZEC perp & withdraw"}
+                {running === "close" ? "..." : "Close ZEC perp & withdraw"}
               </Text>
             </Pressable>
             <Pressable onPress={claimAll} disabled={busy} style={{ padding: 14, marginTop: 10 }}>
               <Text style={{ textAlign: "center", color: "#b79cff" }}>
-                {busy ? "..." : "Claim settled payouts"}
+                {running === "claim" ? "..." : "Claim settled payouts"}
               </Text>
             </Pressable>
             {hedged && (
