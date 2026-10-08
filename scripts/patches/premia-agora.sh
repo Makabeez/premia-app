@@ -1,3 +1,9 @@
+#!/usr/bin/env bash
+# PREMIA for the Agora bounty: AUSD balance card, Perpl top-up on an emptied
+# account, hedge limit = live best quote. Run from ~/github/premia-app.
+set -euo pipefail
+[ -f App.tsx ] && [ -f lib/perplTrade.ts ] || { echo "run this from ~/github/premia-app"; exit 1; }
+cat > lib/perplTrade.ts <<'PREMIA_EOF'
 /**
  * Perpl perp leg: open the perp this swap hedges, from the passkey wallet.
  *
@@ -176,3 +182,86 @@ export async function closePerpAndWithdraw(opts: {
   }
   return { hashes, withdrawnCNS: free, closedLotLNS: pos.lotLNS };
 }
+PREMIA_EOF
+python3 - <<'PREMIA_PY'
+import sys
+p = "App.tsx"; s = open(p).read()
+if "refreshBalances" in s:
+    print("balance card already present, skipping"); sys.exit(0)
+edits = [
+("""import { openPerp, closePerpAndWithdraw } from "./lib/perplTrade";""",
+"""import { openPerp, closePerpAndWithdraw, perplAbi, perplAccountId, PERPL_EXCHANGE } from "./lib/perplTrade";"""),
+("""import { swapAbi } from "./lib/premia";""",
+"""import { swapAbi, erc20Abi } from "./lib/premia";"""),
+("""  const [running, setRunning] = useState<string | null>(null);""",
+"""  const [running, setRunning] = useState<string | null>(null);
+
+  // What the wallet holds: AUSD in the wallet, AUSD in its Perpl account, the open ZEC perp.
+  const [bal, setBal] = useState<{ wallet: bigint; perpl: bigint | null; lot: bigint; entry: bigint } | null>(null);
+  async function refreshBalances(addr: `0x${string}`) {
+    try {
+      const wallet = await publicClient.readContract({ address: AUSD, abi: erc20Abi,
+        functionName: "balanceOf", args: [addr] });
+      let perpl: bigint | null = null, lot = 0n, entry = 0n;
+      const id = await perplAccountId(publicClient as any, addr);
+      if (id !== null) {
+        const a = await publicClient.readContract({ address: PERPL_EXCHANGE, abi: perplAbi,
+          functionName: "getAccountByAddr", args: [addr] });
+        perpl = a.balanceCNS;
+        const [pos] = await publicClient.readContract({ address: PERPL_EXCHANGE, abi: perplAbi,
+          functionName: "getPositionV2", args: [50n, id] });
+        lot = pos.lotLNS; entry = pos.pricePNS;
+      }
+      setBal({ wallet, perpl, lot, entry });
+    } catch (e: any) { console.log("[premia] balance error", e?.shortMessage ?? e?.message); }
+  }
+  // Refresh on sign-in and after every action (each one ends by setting `hedged`).
+  useEffect(() => { if (session) refreshBalances(session.account.address); }, [session, hedged]);"""),
+("""            <Text style={{ color: "#8a8a93", fontSize: 13 }}>
+              {session.address}
+            </Text>""",
+"""            <View style={{ padding: 18, borderRadius: 14, backgroundColor: "#15131f", borderWidth: 1, borderColor: "#2a2440" }}>
+              <Text style={{ color: "#6f6f78", fontSize: 12, letterSpacing: 1 }}>AUSD BALANCE</Text>
+              <Text style={{ color: "#fff", fontSize: 34, fontWeight: "700", marginTop: 4 }}>
+                {bal ? (Number(bal.wallet) / 1e6).toFixed(2) : "..."} <Text style={{ fontSize: 18, color: "#b79cff" }}>AUSD</Text>
+              </Text>
+              <Text style={{ color: "#8a8a93", fontSize: 13, marginTop: 8 }}>
+                {bal && bal.perpl !== null ? `In Perpl account: ${(Number(bal.perpl) / 1e6).toFixed(2)} AUSD` : "No Perpl account yet"}
+              </Text>
+              <Text style={{ color: "#8a8a93", fontSize: 13, marginTop: 2 }}>
+                {bal && bal.lot > 0n ? `Open: long ${Number(bal.lot) / 1e4} ZEC @ ${(Number(bal.entry) / 100).toFixed(2)}` : "No open perp"}
+              </Text>
+            </View>
+            <Text selectable style={{ color: "#8a8a93", fontSize: 12, marginTop: 12 }}>
+              {session.address}
+            </Text>"""),
+]
+for old, new in edits:
+    n = s.count(old)
+    if n != 1:
+        sys.exit(f"ABORT, nothing written: App.tsx anchor matched {n} times:\n{old[:90]}")
+    s = s.replace(old, new)
+open(p, "w").write(s); print("patched App.tsx: AUSD balance card")
+PREMIA_PY
+python3 - <<'PREMIA_PY'
+import sys
+p = "App.tsx"; s = open(p).read()
+if "bestAsk" in s:
+    print("live price limit already present, skipping"); sys.exit(0)
+old = """      //    limit tick 90 = K of at most minK + 90*tickStep; refuses a worse price
+      const hash = await take(session.account, s.id, PAY_FIXED, 1n, 90, s.capPerLot, s.unitScale);"""
+new = """      //    Limit = the best receive-fixed quote right now, so the order never fills
+      //    at a worse price than the one on screen.
+      const [hasAsk, bestAsk] = await publicClient.readContract({ address: PREMIA_SWAP, abi: swapAbi,
+        functionName: "bestTick", args: [BigInt(s.id), 1] });
+      if (!hasAsk) throw new Error(`no quotes to lock against on series ${s.id}`);
+      const hash = await take(session.account, s.id, PAY_FIXED, 1n, bestAsk, s.capPerLot, s.unitScale);"""
+n = s.count(old)
+if n != 1:
+    sys.exit(f"ABORT, nothing written: hedge anchor matched {n} times")
+open(p, "w").write(s.replace(old, new)); print("patched App.tsx: live price limit")
+PREMIA_PY
+npx tsc --noEmit && echo "typecheck ok" || { echo "typecheck errors above: paste them to Claude, nothing committed"; exit 1; }
+mkdir -p scripts/patches && cp "$0" scripts/patches/premia-agora.sh 2>/dev/null || true
+git add -A && git commit -m "AUSD balance card, Perpl top-up for emptied accounts, hedge limit from live best quote" && git push
+echo "Done."
